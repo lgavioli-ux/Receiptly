@@ -205,8 +205,10 @@ async def main(page: ft.Page):
     today = date.today()
     transactions = []
 
+    latest_date = today + timedelta(days=366)   # an invoice due later may be dated up to a year ahead
     screen = "Home"
     period = "Month"
+    custom_start, custom_end = today.replace(day=1), today   # the dates used by the "Custom" period
     library_category = None   # folder currently open in the receipt library
     folders = []              # names of the user's own receipt folders
     open_receipt_id = None    # receipt currently open in the receipt library
@@ -230,18 +232,32 @@ async def main(page: ft.Page):
             items.append(txt(subtitle, 12, MUTED))
         return ft.Column(controls=items, spacing=3)
 
-    def filtered():
-        if period == "All":
-            return list(transactions)
+    def period_range():
+        """The first and last day of the chosen period. (None, None) means everything."""
         if period == "Day":
-            return [t for t in transactions if t["date"] == today]
+            return today, today
         if period == "Week":
-            start = today - timedelta(days=today.weekday())
-            return [t for t in transactions if start <= t["date"] <= today]
+            monday = today - timedelta(days=today.weekday())
+            return monday, monday + timedelta(days=6)
         if period == "Month":
-            return [t for t in transactions if t["date"].year == today.year
-                    and t["date"].month == today.month]
-        return [t for t in transactions if t["date"].year == today.year]
+            next_month = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
+            return today.replace(day=1), next_month - timedelta(days=1)
+        if period == "Year":
+            return date(today.year, 1, 1), date(today.year, 12, 31)
+        if period == "Custom":
+            return custom_start, custom_end
+        return None, None
+
+    def filtered():
+        start, end = period_range()
+        return [t for t in transactions if start is None or start <= t["date"] <= end]
+
+    def period_title():
+        if period == "All":
+            return "Spent in total"
+        if period == "Custom":
+            return f'Spent {custom_start.strftime("%d %b %Y")} to {custom_end.strftime("%d %b %Y")}'
+        return "Spent today" if period == "Day" else f"Spent this {period.lower()}"
 
     def by_currency(rows):
         """Totals per currency, such as {"£": 300.0, "$": 15.0}. Currencies are never added together."""
@@ -334,7 +350,8 @@ async def main(page: ft.Page):
     def row_for(item, show_delete=False):
         left = ft.Column(controls=[
             txt(item["merchant"], 15, DARK, True),
-            txt(f'{item["category"]} • {item["date"].strftime("%d %b %Y")}', 11, MUTED)
+            txt(f'{item["category"]} • {item["date"].strftime("%d %b %Y")}'
+                + (" • upcoming" if item["date"] > today else ""), 11, MUTED)
         ], spacing=2, expand=True)
 
         controls = [left, txt("-" + money(item["amount"], item["currency"]), 15,
@@ -368,12 +385,35 @@ async def main(page: ft.Page):
                          style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=3, vertical=9),
                                               text_style=ft.TextStyle(size=12)))
 
+    def pick_custom_date(is_start):
+        """Open a calendar to choose the first or last day of the Custom period."""
+        def chosen(e):
+            nonlocal custom_start, custom_end
+            # The calendar gives midnight, sometimes in another time zone; noon is always the same day.
+            value = e.control.value
+            day = (value + timedelta(hours=12)).date() if isinstance(value, datetime) else value
+            if is_start:
+                custom_start, custom_end = day, max(custom_end, day)
+            else:
+                custom_start, custom_end = min(custom_start, day), day
+            render()
+        return lambda e: page.show_dialog(ft.DatePicker(
+            value=custom_start if is_start else custom_end,
+            first_date=date(2000, 1, 1), last_date=latest_date, on_change=chosen))
+
     def period_buttons():
-        return ft.Row(controls=[
+        buttons = ft.Row(controls=[
             small_button(p, lambda e, x=p: choose_period(x),
                          GREEN if p == period else MINT, WHITE if p == period else DARK)
-            for p in ["Day", "Week", "Month", "Year", "All"]
+            for p in ["Day", "Week", "Month", "Year", "All", "Custom"]
         ], spacing=4)
+        if period != "Custom":
+            return buttons
+        # Custom: two more buttons that open a calendar for the start date and the end date.
+        return ft.Column(spacing=8, controls=[buttons, ft.Row(spacing=4, controls=[
+            small_button(f'From {custom_start.strftime("%d %b %Y")}', pick_custom_date(True), WHITE, DARK),
+            small_button(f'To {custom_end.strftime("%d %b %Y")}', pick_custom_date(False), WHITE, DARK),
+        ])])
 
     def home():
         rows = filtered()
@@ -394,7 +434,7 @@ async def main(page: ft.Page):
             ),
             period_buttons(),
             panel(
-                txt("Spent in total" if period == "All" else f"Spent this {period.lower()}", 13, MUTED),
+                txt(period_title(), 13, MUTED),
                 amounts_row(rows, 32),
                 ft.Row(controls=[
                     txt(count(len(rows), "transaction"), 12, MUTED),
@@ -492,8 +532,8 @@ async def main(page: ft.Page):
                 feedback.value = "Enter the date as DD/MM/YYYY, such as 12/11/2026."
                 page.update()
                 return
-            if spent_on > today:
-                feedback.value = "The date cannot be in the future."
+            if spent_on > latest_date:
+                feedback.value = "The date cannot be more than a year ahead."
                 page.update()
                 return
 
@@ -772,7 +812,7 @@ async def main(page: ft.Page):
         except (ValueError, TypeError, KeyError):
             print("Ignored a scanned receipt that could not be understood")
             return
-        if scan_id in seen_scans or not name or not (0 < cost <= 1000000) or spent_on > today:
+        if scan_id in seen_scans or not name or not (0 < cost <= 1000000) or spent_on > latest_date:
             return
         seen_scans.add(scan_id)
         if category not in CATEGORIES:
@@ -904,24 +944,21 @@ async def main(page: ft.Page):
         ]
 
     def trend_bars():
-        # One bar per day (Day, Week, Month), per month (Year) or per year (All), never past today.
+        # One bar per day for a period of up to a month, per month for a longer one, per year for All.
         rows = filtered()
-        if period == "All":
+        start, end = period_range()
+        if start is None:
             fmt = "%Y"
             keys = sorted({t["date"].strftime(fmt) for t in rows})
-        elif period == "Year":
-            fmt = "%b"
-            keys = [date(today.year, m, 1).strftime(fmt) for m in range(1, today.month + 1)]
-        else:
+        elif (end - start).days < 31:
             fmt = "%d %b"
-            if period == "Day":
-                start = today
-            elif period == "Week":
-                start = today - timedelta(days=today.weekday())
-            else:
-                start = today.replace(day=1)
-            keys = [(start + timedelta(days=i)).strftime(fmt)
-                    for i in range((today - start).days + 1)]
+            keys = [(start + timedelta(days=i)).strftime(fmt) for i in range((end - start).days + 1)]
+        else:
+            fmt = "%b %Y"
+            keys, month = [], start.replace(day=1)
+            while month <= end:
+                keys.append(month.strftime(fmt))
+                month = (month + timedelta(days=32)).replace(day=1)
 
         groups = defaultdict(list)
         for item in rows:
@@ -932,7 +969,7 @@ async def main(page: ft.Page):
         maximum = max((in_pounds(group) for group in groups.values()), default=1) or 1
         return [
             ft.Row(controls=[
-                ft.Container(width=55, content=txt(key, 11, MUTED)),
+                ft.Container(width=58, content=txt(key, 11, MUTED)),
                 ft.ProgressBar(value=in_pounds(groups.get(key, [])) / maximum,
                                color=GREEN, bgcolor=MINT, expand=True, bar_height=11),
                 ft.Container(width=100, content=txt(amounts_text(groups.get(key, [])), 11, DARK)),
