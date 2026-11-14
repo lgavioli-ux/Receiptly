@@ -1,0 +1,21 @@
+
+[project]
+name = "Receiptly"
+version = "0.1.0"
+description = "Receiptly receipt scanner and expense tracker"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "flet",
+    "flet-webview"
+]
+
+[dependency-groups]
+dev = [
+    "flet[all]"
+]
+
+[tool.flet]
+product = "Receiptly"
+
+[tool.flet.app]
+module = "main"
