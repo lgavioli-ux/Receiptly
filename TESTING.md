@@ -51,7 +51,7 @@ scanner is on new receipts.
 
 ## Bugs
 
-46 bugs have been logged; 38 are fixed and 8 are open.
+47 bugs have been logged; 39 are fixed and 8 are open.
 
 Still open:
 
