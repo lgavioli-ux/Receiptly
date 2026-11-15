@@ -234,25 +234,29 @@ async def main(page: ft.Page):
             items.append(txt(subtitle, 12, MUTED))
         return ft.Column(controls=items, spacing=3)
 
-    def period_range():
-        """The first and last day of the chosen period. (None, None) means everything."""
-        if period == "Day":
+    def period_range(name=None):
+        """The first and last day of a period (the chosen one unless named). (None, None) means everything."""
+        name = name or period
+        if name == "Day":
             return today, today
-        if period == "Week":
+        if name == "Week":
             monday = today - timedelta(days=today.weekday())
             return monday, monday + timedelta(days=6)
-        if period == "Month":
+        if name == "Month":
             next_month = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
             return today.replace(day=1), next_month - timedelta(days=1)
-        if period == "Year":
+        if name == "Year":
             return date(today.year, 1, 1), date(today.year, 12, 31)
-        if period == "Custom":
+        if name == "Custom":
             return custom_start, custom_end
         return None, None
 
+    def in_period(rows, name=None):
+        start, end = period_range(name)
+        return [t for t in rows if start is None or start <= t["date"] <= end]
+
     def filtered():
-        start, end = period_range()
-        return [t for t in transactions if start is None or start <= t["date"] <= end]
+        return in_period(transactions)
 
     def period_title():
         if period == "All":
@@ -363,7 +367,7 @@ async def main(page: ft.Page):
                                           icon_color=MUTED, on_click=remove_transaction(item)))
         return ft.Row(controls=controls, alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
-    def category_bars(rows):
+    def category_bars(rows, breakdown=False):
         groups = defaultdict(list)
         for item in rows:
             groups[item["category"]].append(item)
@@ -379,6 +383,10 @@ async def main(page: ft.Page):
                 ft.ProgressBar(value=in_pounds(groups[cat]) / biggest, color=COLORS[i], bgcolor=MINT,
                                bar_height=12, border_radius=8),
             ])
+            if breakdown:   # Home: what this category cost today, this week, this month and this year
+                mine = [t for t in transactions if t["category"] == cat]
+                result.append(txt(" • ".join(f"{p} {amounts_text(in_period(mine, p))}"
+                                             for p in ["Day", "Week", "Month", "Year"]), 11, MUTED))
         return result or [txt("No spending recorded for this period.", 13, MUTED)]
 
     def small_button(label, on_click, bgcolor, color):
@@ -450,7 +458,7 @@ async def main(page: ft.Page):
                     ft.Container(expand=True),
                     ft.TextButton("See all", on_click=lambda e: switch("Categories")),
                 ]),
-                *category_bars(rows),
+                *category_bars(rows, breakdown=True),
             ),
             panel(
                 ft.Row(controls=[
