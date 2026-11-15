@@ -6,6 +6,7 @@ import io
 import json
 import mimetypes
 import os
+import re
 import sys
 import uuid
 import zipfile
@@ -514,12 +515,13 @@ async def main(page: ft.Page):
 
         async def save(e):
             name = (merchant.value or "").strip()
-            try:
-                cost = round(float((amount.value or "").strip()), 2)
-            except ValueError:
+            # Accept 12.50 or 12,50 and nothing else, so "1e3" or "1_000" is not taken as 1000.
+            typed = (amount.value or "").strip().replace(",", ".")
+            if not re.fullmatch(r"\d+(\.\d{1,2})?", typed):
                 feedback.value = "Enter a valid amount, such as 12.50."
                 page.update()
                 return
+            cost = float(typed)
 
             if not name or not (0 < cost <= 1000000):
                 feedback.value = "Enter a merchant and a positive amount."
@@ -533,8 +535,8 @@ async def main(page: ft.Page):
                 feedback.value = "Enter the date as DD/MM/YYYY, such as 12/11/2026."
                 page.update()
                 return
-            if spent_on > latest_date:
-                feedback.value = "The date cannot be more than a year ahead."
+            if spent_on.year < 2000 or spent_on > latest_date:
+                feedback.value = "The date must be between the year 2000 and a year from now."
                 page.update()
                 return
 
@@ -834,7 +836,7 @@ async def main(page: ft.Page):
         except (ValueError, TypeError, KeyError):
             print("Ignored a scanned receipt that could not be understood")
             return
-        if scan_id in seen_scans or not name or not (0 < cost <= 1000000) or spent_on > latest_date:
+        if scan_id in seen_scans or not name or not (0 < cost <= 1000000) or spent_on.year < 2000 or spent_on > latest_date:
             return
         seen_scans.add(scan_id)
         if category not in CATEGORIES:
@@ -1033,6 +1035,11 @@ async def main(page: ft.Page):
         ]
 
     def render():
+        # Work out today's date afresh each time, so an app left open past midnight is not a day behind.
+        nonlocal today, latest_date
+        today = date.today()
+        latest_date = today + timedelta(days=366)
+
         sections = {
             "Home": home,
             "Scan": add_screen,
@@ -1055,13 +1062,12 @@ async def main(page: ft.Page):
                          bgcolor=MINT, border_radius=10, padding=8),
         ]
 
-        if screen == "History":
+        if screen == "History" and transactions:     # nothing to export or remove from an empty list
             controls.append(ft.Row(controls=[
                 ft.Container(expand=True),
                 ft.Button("Export spreadsheet", icon=ft.Icons.DOWNLOAD, bgcolor=MINT, color=DARK,
-                          disabled=not transactions, on_click=export_spreadsheet),
-                ft.Button("Remove all", bgcolor="#C62828", color=WHITE,
-                          disabled=not transactions, on_click=confirm_remove_all),
+                          on_click=export_spreadsheet),
+                ft.Button("Remove all", bgcolor="#C62828", color=WHITE, on_click=confirm_remove_all),
             ]))
 
         controls.extend(sections[screen]())
