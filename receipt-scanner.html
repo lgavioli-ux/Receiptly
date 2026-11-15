@@ -6,6 +6,9 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
 :root{font-family:system-ui,-apple-system,sans-serif;color:#14362b;background:#f5faf6}*{box-sizing:border-box}body{margin:0}main{max-width:680px;margin:auto;padding:22px}h1{margin-bottom:0}small,.muted{color:#60776c}.card{background:white;border-radius:18px;padding:18px;margin:18px 0;box-shadow:0 2px 12px #14362b0b}label{display:block;font-size:14px;margin-top:12px;font-weight:600}input,select,button,textarea{font:inherit}input:not([type=file]),select{display:block;width:100%;padding:10px;border:1px solid #b9d1c4;border-radius:9px;margin-top:5px}button{background:#207b51;color:white;border:0;border-radius:10px;padding:12px 16px;cursor:pointer;margin-top:12px}button:disabled{opacity:.55;cursor:wait}button.secondary{background:#ddf2e5;color:#14362b}#preview{max-width:100%;max-height:270px;object-fit:contain;border-radius:12px;display:none;margin:12px auto}#review{display:none}.line{display:flex;justify-content:space-between;border-bottom:1px solid #e6eee8;padding:11px 0;gap:12px}.line span:last-child{font-weight:700}#status{font-size:14px;color:#207b51}.warning{font-size:13px;color:#8c4b25}
+/* What the scanner could not read: shown at the very top, in large letters */
+.alert{display:none;background:#fff3e0;border:2px solid #c9792f;border-radius:14px;padding:14px 18px;margin-bottom:14px;font-size:18px;font-weight:600;color:#7a3d10}
+.alert ul{margin:8px 0 0;padding-left:22px}
 
 /* Zoom fix: the page never zooms; the photo opens in its own viewer instead */
 html{touch-action:pan-x pan-y}
@@ -38,6 +41,7 @@ input.check{border:2px solid #c9792f}
 </style>
 </head>
 <body><main>
+<section id="alert" class="alert" role="alert">Check this before saving:<ul id="warnings"></ul></section>
 <p class="standalone warning">Demo only: a student hackathon prototype, not financial advice. Check every amount yourself.</p>
 <h1 class="standalone">Receiptly</h1><small class="standalone">Snap. Track. Save. — Your receipt scanner</small>
 <section class="card">
@@ -72,7 +76,6 @@ input.check{border:2px solid #c9792f}
 <section class="card" id="review">
 <h2>Review the result</h2>
 <p class="warning">Text recognition can be wrong. Check every field before saving.</p>
-<ul id="warnings" class="warning"></ul>
 <label>Merchant<input id="merchant" placeholder="Shop name"></label>
 <label>Total<input id="amount" type="number" min="0.01" step="0.01" placeholder="0.00"></label>
 <label>Currency<select id="currency"><option value="£">£ pounds</option><option value="$">$ US dollars</option><option value="€">€ euros</option><option value="CHF">CHF Swiss francs</option></select></label>
@@ -104,7 +107,7 @@ $('photo').addEventListener('change', async () => {
   if (imgUrl) URL.revokeObjectURL(imgUrl);
   const file = $('photo').files[0];
   $('selected-file').textContent = file ? 'Selected: ' + file.name : '';
-  $('review').style.display = 'none';
+  $('review').style.display = 'none'; $('alert').style.display = 'none';
   $('preview').style.display = 'none'; $('hint').style.display = 'none';   // never leave an earlier photo on show
   if (!file) return;
   if (file.type === 'application/pdf') {
@@ -425,6 +428,9 @@ function showResult(r, text, note, unclear, lowResolution, readBy) {
   }
   if (lowResolution) warnings.push('Low resolution: this image is small, so the text may be misread. Use a larger photo if you can.');
   $('warnings').replaceChildren(...warnings.map(w => { const li = document.createElement('li'); li.textContent = w; return li; }));
+  // Anything missing or doubtful goes in the big box at the top of the page, and the page jumps to it.
+  $('alert').style.display = warnings.length ? 'block' : 'none';
+  if (warnings.length) $('alert').scrollIntoView({ block: 'start' });
   $('merchant').classList.toggle('check', !r.merchant);
   $('amount').classList.toggle('check', r.amount === '');
   $('date').classList.toggle('check', !r.date || Boolean(r.dateUnsure) || r.date > TODAY);
@@ -511,7 +517,7 @@ $('save').onclick = async () => {
   const receipt = { merchant, amount: Math.round(amount * 100) / 100, currency: $('currency').value, date, category };
   $('save').disabled = true;                   // a double tap must not add the receipt twice
   try { await sendToApp(receipt); } finally { $('save').disabled = false; }
-  $('review').style.display = 'none';
+  $('review').style.display = 'none'; $('alert').style.display = 'none';
   $('status').textContent = 'Added to Receiptly.';
 };
 </script></body></html>
