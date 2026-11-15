@@ -255,6 +255,7 @@ async def main(page: ft.Page):
     latest_date = today + timedelta(days=366)   # an invoice due later may be dated up to a year ahead
     screen = "Home"
     period = "Month"
+    ring_by = "Category"      # the ring chart on Stats is split by "Category" or by "Shop"
     custom_start, custom_end = today.replace(day=1), today   # the dates used by the "Custom" period
     library_category = None   # folder currently open in the receipt library
     folders = []              # names of the user's own receipt folders
@@ -325,6 +326,14 @@ async def main(page: ft.Page):
         """The totals as big text, one per currency, each in its own colour."""
         return ft.Row(wrap=True, spacing=14, controls=[
             txt(money(amount, c), size, CURRENCY_COLORS[c], True) for c, amount in by_currency(rows).items()])
+
+    def by_shop(rows):
+        """The rows grouped by shop, biggest spend first. Spellings that differ only in
+        capitals ("Tesco", "TESCO") count as one shop; other spellings stay separate."""
+        groups = defaultdict(list)
+        for t in rows:
+            groups[t["merchant"].strip().lower()].append(t)
+        return sorted(groups.values(), key=in_pounds, reverse=True)
 
     def in_pounds(rows):
         """Rough size in pounds. Only used for the length of chart bars, never shown as a total."""
@@ -457,7 +466,8 @@ async def main(page: ft.Page):
             first_date=date(2000, 1, 1), last_date=latest_date, on_change=chosen))
 
     async def export_pdf(e):
-        """Save a PDF report of the period on screen: the total, each category, then every transaction."""
+        """Save a PDF report of the period on screen: the total, each category, the top shops,
+        then every transaction."""
         rows = sorted(filtered(), key=lambda t: t["date"])
         start, end = period_range()
         dates = "All dates" if start is None else f'{start.strftime("%d %b %Y")} to {end.strftime("%d %b %Y")}'
@@ -467,6 +477,8 @@ async def main(page: ft.Page):
             mine = [t for t in rows if t["category"] == cat]
             if mine:
                 lines.append((cat, amounts_text(mine), 11, False))
+        lines += [("", "", 8, False), ("By shop (top 10)", "", 13, True)]
+        lines += [(group[0]["merchant"][:40], amounts_text(group), 11, False) for group in by_shop(rows)[:10]]
         lines += [("", "", 8, False), (count(len(rows), "transaction"), "", 13, True)]
         lines += [(f'{t["date"].strftime("%d %b %Y")}   {t["merchant"][:30]}   ({t["category"]})',
                    money(t["amount"], t["currency"]), 10, False) for t in rows]
@@ -1074,9 +1086,16 @@ async def main(page: ft.Page):
         ]
 
     def ring_chart(rows):
-        """Spending by category as a ring split into coloured segments, with the total in the middle.
+        """Spending as a ring split into coloured segments, with the total in the middle.
+        The segments are categories, or the six biggest shops plus "Other shops".
         With more than one currency the segment sizes use the approximate exchange rates."""
-        sizes = [in_pounds([t for t in rows if t["category"] == cat]) for cat in CATEGORIES]
+        if ring_by == "Shop":
+            shops = by_shop(rows)
+            parts = [(group[0]["merchant"], group) for group in shops[:6]]
+            parts.append(("Other shops", [t for group in shops[6:] for t in group]))
+        else:
+            parts = [(cat, [t for t in rows if t["category"] == cat]) for cat in CATEGORIES]
+        sizes = [in_pounds(part) for _, part in parts]
         whole = sum(sizes)
         if not whole:
             return txt("No spending recorded for this period.", 13, MUTED)
@@ -1099,9 +1118,27 @@ async def main(page: ft.Page):
                                                      for c, amount in by_currency(rows).items()])),
         ])
         key = [ft.Row(spacing=6, controls=[ft.Container(width=12, height=12, bgcolor=colour, border_radius=3),
-                                           txt(f"{cat} {size / whole:.0%}", 12)])
-               for cat, colour, size in zip(CATEGORIES, RING_COLORS, sizes) if size]
+                                           txt(f"{name[:24]} {size / whole:.0%}", 12)])
+               for (name, _), colour, size in zip(parts, RING_COLORS, sizes) if size]
         return ft.Row(spacing=24, controls=[ring, ft.Column(spacing=4, controls=key)])
+
+    def choose_ring(name):
+        nonlocal ring_by
+        ring_by = name
+        render()
+
+    def top_shops(rows):
+        """The five shops where most was spent, each with its amount and share of the total."""
+        whole = in_pounds(rows) or 1
+        result = []
+        for group in by_shop(rows)[:5]:
+            result.extend([
+                ft.Row(controls=[txt(group[0]["merchant"][:30], 13), ft.Container(expand=True),
+                                 txt(f"{amounts_text(group)} • {in_pounds(group) / whole:.0%}", 13, DARK, True)]),
+                ft.ProgressBar(value=in_pounds(group) / whole, color=GREEN, bgcolor=MINT,
+                               bar_height=8, border_radius=8),
+            ])
+        return result or [txt("No spending recorded for this period.", 13, MUTED)]
 
     def stats():
         rows = filtered()
@@ -1122,7 +1159,13 @@ async def main(page: ft.Page):
                 txt(f"Average per transaction: {average}", 13, MUTED),
             ),
             panel(txt("Spending trend", 18, DARK, True), *trend_bars()),
-            panel(txt("Share by category", 18, DARK, True), ring_chart(rows)),
+            panel(txt(f"Share by {ring_by.lower()}", 18, DARK, True),
+                  ft.Row(spacing=4, controls=[
+                      small_button(f"By {name.lower()}", lambda e, x=name: choose_ring(x),
+                                   GREEN if name == ring_by else MINT, WHITE if name == ring_by else DARK)
+                      for name in ["Category", "Shop"]]),
+                  ring_chart(rows)),
+            panel(txt("Top shops", 18, DARK, True), *top_shops(rows)),
             panel(txt("Category breakdown", 18, DARK, True), *category_bars(rows)),
             *([ft.Button("Export spreadsheet", icon=ft.Icons.DOWNLOAD, bgcolor=MINT, color=DARK,
                          on_click=export_spreadsheet)] if transactions else []),
