@@ -25,6 +25,8 @@ MUTED = "#60776C"
 
 CATEGORIES = ["Groceries", "Restaurants", "Transport", "Shopping", "Entertainment", "Healthcare", "Other"]
 COLORS = ["#247D55", "#49A878", "#88C5A1", "#B4DCC3", "#74A6A1", "#C8B4DB", "#A8B5AE"]
+# The ring chart needs colours that are easy to tell apart, also for colour-blind users (Okabe-Ito set).
+RING_COLORS = ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#999999"]
 # "?embedded=1" tells the scanner page it is running inside the app, so it sends
 # each reviewed receipt to the app instead of keeping its own separate list.
 SCANNER_URL = "https://lgavioli-ux.github.io/Receiptly/receipt-scanner.html?embedded=1"
@@ -1008,26 +1010,35 @@ async def main(page: ft.Page):
             ]) for key in keys
         ]
 
-    def pie_chart(rows):
-        """A pie chart of spending by category: one circle, filled with a colour for each slice.
-        With more than one currency the slice sizes use the approximate exchange rates."""
+    def ring_chart(rows):
+        """Spending by category as a ring split into coloured segments, with the total in the middle.
+        With more than one currency the segment sizes use the approximate exchange rates."""
         sizes = [in_pounds([t for t in rows if t["category"] == cat]) for cat in CATEGORIES]
         whole = sum(sizes)
         if not whole:
             return txt("No spending recorded for this period.", 13, MUTED)
+        gap = 0.006 if sum(1 for size in sizes if size) > 1 else 0      # a thin white line between segments
         colours, stops, edge = [], [], 0.0
-        for colour, size in zip(COLORS, sizes):
-            if size:                                  # each slice runs from one edge to the next
-                colours += [colour, colour]
-                stops += [edge, edge + size / whole]
-                edge += size / whole
+        for colour, size in zip(RING_COLORS, sizes):
+            if size:                                  # each segment runs from one edge to the next
+                end = edge + size / whole
+                colours += [colour, colour, WHITE, WHITE]
+                stops += [edge, end - gap, end - gap, end]
+                edge = end
+        ring = ft.Stack(alignment=ft.Alignment.CENTER, controls=[
+            ft.Container(width=170, height=170, shape=ft.BoxShape.CIRCLE,
+                         gradient=ft.SweepGradient(colors=colours, stops=stops)),
+            ft.Container(width=106, height=106, shape=ft.BoxShape.CIRCLE, bgcolor=WHITE,   # the hole
+                         alignment=ft.Alignment.CENTER,
+                         content=ft.Column(tight=True, spacing=0,
+                                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                           controls=[txt(money(amount, c), 12, CURRENCY_COLORS[c], True)
+                                                     for c, amount in by_currency(rows).items()])),
+        ])
         key = [ft.Row(spacing=6, controls=[ft.Container(width=12, height=12, bgcolor=colour, border_radius=3),
                                            txt(f"{cat} {size / whole:.0%}", 12)])
-               for cat, colour, size in zip(CATEGORIES, COLORS, sizes) if size]
-        return ft.Row(spacing=24, controls=[
-            ft.Container(width=150, height=150, shape=ft.BoxShape.CIRCLE,
-                         gradient=ft.SweepGradient(colors=colours, stops=stops)),
-            ft.Column(spacing=4, controls=key)])
+               for cat, colour, size in zip(CATEGORIES, RING_COLORS, sizes) if size]
+        return ft.Row(spacing=24, controls=[ring, ft.Column(spacing=4, controls=key)])
 
     def stats():
         rows = filtered()
@@ -1048,7 +1059,7 @@ async def main(page: ft.Page):
                 txt(f"Average per transaction: {average}", 13, MUTED),
             ),
             panel(txt("Spending trend", 18, DARK, True), *trend_bars()),
-            panel(txt("Share by category", 18, DARK, True), pie_chart(rows)),
+            panel(txt("Share by category", 18, DARK, True), ring_chart(rows)),
             panel(txt("Category breakdown", 18, DARK, True), *category_bars(rows)),
             *([ft.Button("Export spreadsheet", icon=ft.Icons.DOWNLOAD, bgcolor=MINT, color=DARK,
                          on_click=export_spreadsheet)] if transactions else []),
