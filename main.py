@@ -936,7 +936,7 @@ async def main(page: ft.Page):
         try:
             path = await picker.save_file(file_name=file_name, src_bytes=data)
             if page.web or path:               # in the app, no path means they cancelled
-                page.show_dialog(ft.SnackBar(ft.Text(done)))
+                page.show_dialog(ft.SnackBar(ft.Text(done), duration=2000))   # 2 seconds: it sits over the menu
         except Exception as ex:
             print(f"Could not save {file_name}: {ex}")
             page.show_dialog(ft.AlertDialog(

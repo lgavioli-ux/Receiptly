@@ -105,7 +105,8 @@ $('photo').addEventListener('change', async () => {
   const file = $('photo').files[0];
   $('selected-file').textContent = file ? 'Selected: ' + file.name : '';
   $('review').style.display = 'none';
-  if (!file) { $('preview').style.display = 'none'; $('hint').style.display = 'none'; return; }
+  $('preview').style.display = 'none'; $('hint').style.display = 'none';   // never leave an earlier photo on show
+  if (!file) return;
   if (file.type === 'application/pdf') {
     $('status').textContent = 'Opening the PDF...';
     try { usePicture(await pdfToPicture(file)); }
@@ -272,7 +273,8 @@ function findDate(text, usStyle) {
   }
   // All numbers: 05/11/2026 or 10/19/24
   // (a space may follow each separator, as in "30.07. 2007", but the date must stay on one line)
-  for (m of text.matchAll(/\b(\d{1,2})[\/.,-] ?(\d{1,2})[\/.,-] ?(20\d{2}|\d{2})\b/g)) {
+  // Dates with a full year are tried first, so a misread price such as "1.2.00" is not taken for a date.
+  for (const yearDigits of ['20\\d{2}', '\\d{2}']) for (m of text.matchAll(new RegExp('\\b(\\d{1,2})[\\/.,-] ?(\\d{1,2})[\\/.,-] ?(' + yearDigits + ')\\b', 'g'))) {
     let first = Number(m[1]), second = Number(m[2]), year = Number(m[3]);
     if (year < 100) year += 2000;
     let day = first, month = second;                 // default: day/month (UK, Europe)
@@ -368,6 +370,7 @@ async function readWithClaude(file, key) {
   const choice = options => ({ type: 'string', enum: options });
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
+    signal: AbortSignal.timeout(60000),          // give up after a minute instead of waiting for ever
     headers: {
       'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2026-10-21',
       'anthropic-dangerous-direct-browser-access': 'true',     // needed to call the API from a web page
@@ -450,7 +453,9 @@ $('scan').onclick = async () => {
   const key = localStorage.getItem(CLAUDE_KEY);
   let r = null, text = '', unclear = false, note = '', worker;
   try {
-    const picture = await photoToCanvas(file, 1800, true);
+    let picture;
+    try { picture = await photoToCanvas(file, 1800, true); }
+    catch { throw new Error('this file could not be opened as a picture. Choose a photo, a screenshot or a PDF.'); }
     if (key) {
       $('status').textContent = 'Sending the photo to Claude to be read...';
       try { r = await readWithClaude(file, key); text = 'Read by Claude.'; }
