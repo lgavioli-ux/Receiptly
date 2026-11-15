@@ -41,7 +41,7 @@ input.check{border:2px solid #c9792f}
 </style>
 </head>
 <body><main>
-<section id="alert" class="alert" role="alert">Check this before saving:<ul id="warnings"></ul></section>
+<section id="alert" class="alert" role="alert">Please check:<ul id="warnings"></ul></section>
 <p class="standalone warning">Demo only: a student hackathon prototype, not financial advice. Check every amount yourself.</p>
 <h1 class="standalone">Receiptly</h1><small class="standalone">Snap. Track. Save. — Your receipt scanner</small>
 <section class="card">
@@ -407,6 +407,13 @@ async function readWithClaude(file, key) {
   return r;
 }
 
+// Anything missing, doubtful or failed goes in the big box at the top of the page, and the page jumps to it.
+function showAlert(messages) {
+  $('warnings').replaceChildren(...messages.map(w => { const li = document.createElement('li'); li.textContent = w; return li; }));
+  $('alert').style.display = messages.length ? 'block' : 'none';
+  if (messages.length) $('alert').scrollIntoView({ block: 'start' });
+}
+
 // Fill in the review form and list everything the user should check.
 function showResult(r, text, note, unclear, lowResolution, readBy) {
   $('merchant').value = r.merchant;
@@ -427,10 +434,7 @@ function showResult(r, text, note, unclear, lowResolution, readBy) {
     if (r.currency !== '£') warnings.push(`This receipt looks like it is in ${r.currency}, so it will be saved in ${r.currency}. Change the currency below if that is wrong.`);
   }
   if (lowResolution) warnings.push('Low resolution: this image is small, so the text may be misread. Use a larger photo if you can.');
-  $('warnings').replaceChildren(...warnings.map(w => { const li = document.createElement('li'); li.textContent = w; return li; }));
-  // Anything missing or doubtful goes in the big box at the top of the page, and the page jumps to it.
-  $('alert').style.display = warnings.length ? 'block' : 'none';
-  if (warnings.length) $('alert').scrollIntoView({ block: 'start' });
+  showAlert(warnings);
   $('merchant').classList.toggle('check', !r.merchant);
   $('amount').classList.toggle('check', r.amount === '');
   $('date').classList.toggle('check', !r.date || Boolean(r.dateUnsure) || r.date > TODAY);
@@ -483,6 +487,7 @@ $('scan').onclick = async () => {
     showResult(r, text, note, unclear, picture.width < 1200, key && !note ? 'Read by Claude. ' : 'Text extracted! ');
   } catch (err) {
     $('status').textContent = 'Could not read receipt: ' + err.message;
+    showAlert([$('status').textContent]);                    // a failed scan is announced at the top too
   } finally {
     if (worker) await worker.terminate();
     $('scan').disabled = false;
