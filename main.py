@@ -1008,6 +1008,27 @@ async def main(page: ft.Page):
             ]) for key in keys
         ]
 
+    def pie_chart(rows):
+        """A pie chart of spending by category: one circle, filled with a colour for each slice.
+        With more than one currency the slice sizes use the approximate exchange rates."""
+        sizes = [in_pounds([t for t in rows if t["category"] == cat]) for cat in CATEGORIES]
+        whole = sum(sizes)
+        if not whole:
+            return txt("No spending recorded for this period.", 13, MUTED)
+        colours, stops, edge = [], [], 0.0
+        for colour, size in zip(COLORS, sizes):
+            if size:                                  # each slice runs from one edge to the next
+                colours += [colour, colour]
+                stops += [edge, edge + size / whole]
+                edge += size / whole
+        key = [ft.Row(spacing=6, controls=[ft.Container(width=12, height=12, bgcolor=colour, border_radius=3),
+                                           txt(f"{cat} {size / whole:.0%}", 12)])
+               for cat, colour, size in zip(CATEGORIES, COLORS, sizes) if size]
+        return ft.Row(spacing=24, controls=[
+            ft.Container(width=150, height=150, shape=ft.BoxShape.CIRCLE,
+                         gradient=ft.SweepGradient(colors=colours, stops=stops)),
+            ft.Column(spacing=4, controls=key)])
+
     def stats():
         rows = filtered()
         n = len(rows)
@@ -1027,7 +1048,10 @@ async def main(page: ft.Page):
                 txt(f"Average per transaction: {average}", 13, MUTED),
             ),
             panel(txt("Spending trend", 18, DARK, True), *trend_bars()),
+            panel(txt("Share by category", 18, DARK, True), pie_chart(rows)),
             panel(txt("Category breakdown", 18, DARK, True), *category_bars(rows)),
+            *([ft.Button("Export spreadsheet", icon=ft.Icons.DOWNLOAD, bgcolor=MINT, color=DARK,
+                         on_click=export_spreadsheet)] if transactions else []),
             ft.Button("Open categories page", on_click=lambda e: switch("Categories"),
                       bgcolor=MINT, color=DARK),
         ]
