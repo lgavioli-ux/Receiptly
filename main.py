@@ -107,6 +107,49 @@ def photo_label(spent_on, amount, currency, merchant):
     return f'{spent_on.strftime("%b")} {day}{ending} {spent_on.year}, {cost} at {shop}'
 
 
+def make_pdf(lines):
+    """Build a plain PDF from rows of text, without any extra library.
+    Each row is (left text, right text, font size, bold?). A new page starts when one is full."""
+    def clean(text):   # the PDF's built-in fonts only know Western letters; anything else becomes "?"
+        raw = text.encode("cp1252", "replace").decode("latin-1")
+        return raw.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    pages, page, y = [], [], 790
+    for left, right, size, bold in lines:
+        if y < 60:                                    # page full: start the next one
+            pages.append(page)
+            page, y = [], 790
+        font = "F2" if bold else "F1"
+        page.append(f"BT /{font} {size} Tf 50 {y:.0f} Td ({clean(left)}) Tj ET")
+        if right:                                     # lined up with the right edge (0.56 = average letter width)
+            x = 545 - 0.56 * size * len(right)
+            page.append(f"BT /{font} {size} Tf {x:.0f} {y:.0f} Td ({clean(right)}) Tj ET")
+        y -= size * 1.6
+    pages.append(page)
+
+    # A PDF is a numbered list of objects: 1 the document, 2 the page list, 3 and 4 the fonts,
+    # then two for each page (the page itself and the text drawn on it).
+    objects = ["<< /Type /Catalog /Pages 2 0 R >>",
+               "<< /Type /Pages /Count %d /Kids [%s] >>"
+               % (len(pages), " ".join(f"{5 + 2 * i} 0 R" for i in range(len(pages)))),
+               "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+               "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"]
+    for i, page in enumerate(pages):
+        text = "\n".join(page)
+        objects.append("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+                       f"/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {6 + 2 * i} 0 R >>")
+        objects.append(f"<< /Length {len(text)} >>\nstream\n{text}\nendstream")
+
+    out, starts = b"%PDF-1.4\n", []
+    for number, body in enumerate(objects, 1):
+        starts.append(len(out))                       # the file ends with a table of where each object starts
+        out += f"{number} 0 obj\n{body}\nendobj\n".encode("latin-1")
+    table = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    out += b"".join(f"{start:010d} 00000 n \n".encode() for start in starts)
+    return out + f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{table}\n%%EOF\n".encode()
+
+
 def save_photo(label, original_name, data):
     """Write the photo to the photo folder under the given name and return its file name."""
     if photo_dir is None:
@@ -413,19 +456,39 @@ async def main(page: ft.Page):
             value=custom_start if is_start else custom_end,
             first_date=date(2000, 1, 1), last_date=latest_date, on_change=chosen))
 
+    async def export_pdf(e):
+        """Save a PDF report of the period on screen: the total, each category, then every transaction."""
+        rows = sorted(filtered(), key=lambda t: t["date"])
+        start, end = period_range()
+        dates = "All dates" if start is None else f'{start.strftime("%d %b %Y")} to {end.strftime("%d %b %Y")}'
+        lines = [("Receiptly spending report", "", 18, True), (dates, "", 11, False), ("", "", 8, False),
+                 ("Total spent", amounts_text(rows), 13, True), ("", "", 8, False), ("By category", "", 13, True)]
+        for cat in CATEGORIES:
+            mine = [t for t in rows if t["category"] == cat]
+            if mine:
+                lines.append((cat, amounts_text(mine), 11, False))
+        lines += [("", "", 8, False), (count(len(rows), "transaction"), "", 13, True)]
+        lines += [(f'{t["date"].strftime("%d %b %Y")}   {t["merchant"][:30]}   ({t["category"]})',
+                   money(t["amount"], t["currency"]), 10, False) for t in rows]
+        lines += [("", "", 8, False), ("A student hackathon prototype. Not financial advice.", "", 9, False)]
+        await save_to_device("Receiptly report.pdf", make_pdf(lines),
+                             f"Saved a PDF report of {count(len(rows), 'transaction')}.")
+
     def period_buttons():
-        buttons = ft.Row(controls=[
+        rows = [ft.Row(controls=[
             small_button(p, lambda e, x=p: choose_period(x),
                          GREEN if p == period else MINT, WHITE if p == period else DARK)
             for p in ["Day", "Week", "Month", "Year", "All", "Custom"]
-        ], spacing=4)
-        if period != "Custom":
-            return buttons
-        # Custom: two more buttons that open a calendar for the start date and the end date.
-        return ft.Column(spacing=8, controls=[buttons, ft.Row(spacing=4, controls=[
-            small_button(f'From {custom_start.strftime("%d %b %Y")}', pick_custom_date(True), WHITE, DARK),
-            small_button(f'To {custom_end.strftime("%d %b %Y")}', pick_custom_date(False), WHITE, DARK),
-        ])])
+        ], spacing=4)]
+        if period == "Custom":   # two more buttons that open a calendar for the start date and the end date
+            rows.append(ft.Row(spacing=4, controls=[
+                small_button(f'From {custom_start.strftime("%d %b %Y")}', pick_custom_date(True), WHITE, DARK),
+                small_button(f'To {custom_end.strftime("%d %b %Y")}', pick_custom_date(False), WHITE, DARK),
+            ]))
+        if filtered():           # a report of exactly what the chosen period shows
+            rows.append(ft.Button("Export to PDF", icon=ft.Icons.PICTURE_AS_PDF, bgcolor=WHITE, color=DARK,
+                                  on_click=export_pdf))
+        return ft.Column(spacing=8, controls=rows)
 
     def home():
         rows = filtered()
