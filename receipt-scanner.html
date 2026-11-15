@@ -77,6 +77,7 @@ input.check{border:2px solid #c9792f}
 <label>Total<input id="amount" type="number" min="0.01" step="0.01" placeholder="0.00"></label>
 <label>Currency<select id="currency"><option value="£">£ pounds</option><option value="$">$ US dollars</option><option value="€">€ euros</option><option value="CHF">CHF Swiss francs</option></select></label>
 <label>Date<input id="date" type="date"></label>
+<button id="today" class="secondary" type="button" style="padding:8px 14px;margin-top:6px">Today</button>
 <label>Category<select id="category"><option>Groceries</option><option>Restaurants</option><option>Transport</option><option>Shopping</option><option>Entertainment</option><option>Healthcare</option><option>Other</option></select></label>
 <p class="muted standalone">This page only reads receipts. Open the scanner inside the Receiptly app to save them.</p>
 <p id="saveError" class="warning" role="alert"></p>
@@ -402,7 +403,7 @@ function showResult(r, text, note, unclear, lowResolution, readBy) {
   else {
     if (!r.merchant) warnings.push('Shop name not found. Type it in.');
     if (r.amount === '') warnings.push('No TOTAL line could be read. Enter the total yourself.');
-    if (!r.date) warnings.push('No date found. Enter the date.');
+    if (!r.date) warnings.push("Can't see the date. Enter it yourself or tap Today.");
     else if (r.dateUnsure) warnings.push('The date could be read as day/month or month/day. Check it.');
     if (r.date > TODAY) warnings.push('This date is in the future. Keep it only if the payment is due later.');
     if (r.currency !== '£') warnings.push(`This receipt looks like it is in ${r.currency}, so it will be saved in ${r.currency}. Change the currency below if that is wrong.`);
@@ -417,6 +418,9 @@ function showResult(r, text, note, unclear, lowResolution, readBy) {
   $('review').style.display = 'block';
   $('status').textContent = unclear ? 'This photo could not be read clearly.' : readBy + 'Please review the values below.';
 }
+
+// "Today" fills in today's date, for a receipt whose date is missing or unreadable.
+$('today').onclick = () => { $('date').value = TODAY; $('date').classList.remove('check'); };
 
 // Receipts that arrive as text (an email, a message, an order page) need no photo at all.
 $('readText').onclick = () => {

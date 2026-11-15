@@ -8,6 +8,7 @@ import mimetypes
 import os
 import sys
 import uuid
+import zipfile
 import flet_webview as fwv
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -636,6 +637,25 @@ async def main(page: ft.Page):
             ))
         return ask
 
+    async def download_all_photos(e):
+        """Save every receipt photo in one zip file whose folders mirror the library, such as
+        "Receiptly Receipts/Groceries/Nov 9th 2026, £25 at Tesco.jpg". Unzip it to browse the
+        photos on the device without opening Receiptly."""
+        def folder(name):                       # a folder name must not contain a slash
+            return name.replace("/", " ").replace("\\", " ")
+        archive, saved = io.BytesIO(), 0
+        with zipfile.ZipFile(archive, "w") as files:
+            for t in receipts_with_photos():
+                data = load_photo(t["photo"])
+                if not data:
+                    continue
+                saved += 1
+                files.writestr(f'Receiptly Receipts/{t["category"]}/{t["photo"]}', data)
+                if t.get("folder"):             # a copy also goes in the user's own folder
+                    files.writestr(f'Receiptly Receipts/My folders/{folder(t["folder"])}/{t["photo"]}', data)
+        await save_to_device("Receiptly Receipts.zip", archive.getvalue(),
+                             f"Saved {count(saved, 'receipt photo')} in Receiptly Receipts.zip.")
+
     def receipts_with_photos():
         return [t for t in transactions if t.get("photo")]
 
@@ -786,6 +806,8 @@ async def main(page: ft.Page):
                 12, MUTED),
             ft.Button("Add a receipt", on_click=lambda e: switch("Scan"),
                       bgcolor=GREEN, color=WHITE),
+            ft.Button("Download all photos (zip)", icon=ft.Icons.DOWNLOAD, bgcolor=MINT, color=DARK,
+                      disabled=not receipts, on_click=download_all_photos),
         ]
 
     # ---- Receipts arriving from the embedded scanner page ----
