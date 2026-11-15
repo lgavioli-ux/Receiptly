@@ -177,6 +177,7 @@ const KNOWN_SHOPS = [
   ['Whole Foods', 'Groceries', true], ['Trader Joe\'s', 'Groceries', true],
   ['Walmart', 'Shopping', true], ['Target', 'Shopping', true], ['Costco', 'Shopping', true],
   ['Amazon', 'Shopping'], ['Primark', 'Shopping'], ['Zara', 'Shopping'], ['IKEA', 'Shopping'],
+  ['TK Maxx', 'Shopping'], ['H&M', 'Shopping'], ['B&Q', 'Shopping'], ['M&S', 'Groceries'],
   ['McDonald\'s', 'Restaurants'], ['KFC', 'Restaurants'], ['Subway', 'Restaurants'], ['Starbucks', 'Restaurants'],
   ['Greggs', 'Restaurants'], ['Pret', 'Restaurants'], ['Nando\'s', 'Restaurants'],
   ['Boots', 'Healthcare'], ['CVS', 'Healthcare', true], ['Walgreens', 'Healthcare', true],
@@ -221,7 +222,11 @@ function findMerchant(lines, shop) {
   const hasPrice = /\d[.,]\d{2}/;
   const line = lines.slice(0, 8).find(x => /\p{L}{4,}/u.test(x) && !/\d{3,}/.test(x) && !hasPrice.test(x) && !notAName.test(x));
   // Keep letters (including accented ones such as ä or é), digits and a few name symbols.
-  return line ? line.replace(/[^\p{L}\p{N}\s&'.-]/gu, '').trim() : '';
+  const name = line ? line.replace(/[^\p{L}\p{N}\s&'.-]/gu, '').trim() : '';
+  // A misread logo comes out as noise such as "J opal eee le Se Ree RE", and an address has a house
+  // number. A real name has neither: every word has 3+ letters, or is a common short word.
+  const realWord = w => !/\d/.test(w) && (w.replace(/[^\p{L}]/gu, '').length >= 3 || /^(&|-|of|de|la|le|el|du|st|co)\.?$/i.test(w));
+  return name.split(/\s+/).every(realWord) ? name : '';      // better blank than a made-up shop
 }
 
 function findCategory(lines, shop) {
@@ -325,9 +330,11 @@ function parseReceipt(text) {
   const usStyle = Boolean(shop && shop[2]) || /\b[A-Z]{2}\s+\d{5}\b/.test(text);
   const date = findDate(text, usStyle);
   const currency = findCurrency(text, usStyle);
+  const amount = findTotal(lines);
   return {
-    merchant: findMerchant(lines, shop),
-    amount: findTotal(lines),
+    // With no known shop, no total and no date, this is probably not a receipt, so no shop is guessed.
+    merchant: shop || amount !== '' || date.iso ? findMerchant(lines, shop) : '',
+    amount,
     date: date.iso,
     // Only doubt a date like 05/11 when nothing on the receipt says which country it is from.
     dateUnsure: date.unsure && !usStyle && !currency,
