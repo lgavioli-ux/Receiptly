@@ -548,7 +548,7 @@ async def main(page: ft.Page):
         ]
 
     def add_screen():
-        merchant = ft.TextField(label="Shop or merchant", hint_text="e.g. Tesco")
+        merchant = ft.TextField(label="Shop name (optional)", hint_text="e.g. Tesco")
         amount = ft.TextField(label="Amount", hint_text="e.g. 12.50",
                               keyboard_type=ft.KeyboardType.NUMBER)
         currency = ft.Dropdown(label="Currency", value="£",
@@ -608,10 +608,12 @@ async def main(page: ft.Page):
                 return
             cost = float(typed)
 
-            if not name or not (0 < cost <= 1000000):
-                feedback.value = "Enter a merchant and a positive amount."
+            if not (0 < cost <= 1000000):
+                feedback.value = "Enter a positive amount."
                 page.update()
                 return
+            # The shop name is optional: without one the expense is counted under its category.
+            name = name or f"{category.value or 'Other'} (no shop name)"
             paid_in = currency.value or "£"
 
             try:
@@ -921,11 +923,12 @@ async def main(page: ft.Page):
         except (ValueError, TypeError, KeyError):
             print("Ignored a scanned receipt that could not be understood")
             return
-        if scan_id in seen_scans or not name or not (0 < cost <= 1000000) or spent_on.year < 2000 or spent_on > latest_date:
+        if scan_id in seen_scans or not (0 < cost <= 1000000) or spent_on.year < 2000 or spent_on > latest_date:
             return
         seen_scans.add(scan_id)
         if category not in CATEGORIES:
             category = "Other"
+        name = name or f"{category} (no shop name)"   # the shop name is optional
 
         item_id = uuid.uuid4().hex
         photo_name = None
