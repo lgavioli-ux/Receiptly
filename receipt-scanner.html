@@ -7,7 +7,7 @@
 <style>
 :root{font-family:system-ui,-apple-system,sans-serif;color:#14362b;background:#f5faf6}*{box-sizing:border-box}body{margin:0}main{max-width:680px;margin:auto;padding:22px}h1{margin-bottom:0}small,.muted{color:#60776c}.card{background:white;border-radius:18px;padding:18px;margin:18px 0;box-shadow:0 2px 12px #14362b0b}label{display:block;font-size:14px;margin-top:12px;font-weight:600}input,select,button,textarea{font:inherit}input:not([type=file]),select{display:block;width:100%;padding:10px;border:1px solid #b9d1c4;border-radius:9px;margin-top:5px}button{background:#207b51;color:white;border:0;border-radius:10px;padding:12px 16px;cursor:pointer;margin-top:12px}button:disabled{opacity:.55;cursor:wait}button.secondary{background:#ddf2e5;color:#14362b}#preview{max-width:100%;max-height:270px;object-fit:contain;border-radius:12px;display:none;margin:12px auto}#review{display:none}.line{display:flex;justify-content:space-between;border-bottom:1px solid #e6eee8;padding:11px 0;gap:12px}.line span:last-child{font-weight:700}#status{font-size:14px;color:#207b51}.warning{font-size:13px;color:#8c4b25}
 /* What the scanner could not read: shown at the very top, in large letters */
-.alert{display:none;background:#fff3e0;border:2px solid #c9792f;border-radius:14px;padding:14px 18px;margin-bottom:14px;font-size:18px;font-weight:600;color:#7a3d10}
+.alert{display:none;background:#fff3e0;border:3px solid #c9792f;border-radius:14px;padding:16px 20px;margin-bottom:14px;font-size:20px;font-weight:700;line-height:1.35;color:#7a3d10}
 .alert ul{margin:8px 0 0;padding-left:22px}
 
 /* Zoom fix: the page never zooms; the photo opens in its own viewer instead */
@@ -41,7 +41,7 @@ input.check{border:2px solid #c9792f}
 </style>
 </head>
 <body><main>
-<section id="alert" class="alert" role="alert">Please check:<ul id="warnings"></ul></section>
+<section id="alert" class="alert" role="alert">Before you save:<ul id="warnings"></ul></section>
 <p class="standalone warning">Demo only: a student hackathon prototype, not financial advice. Check every amount yourself.</p>
 <h1 class="standalone">Receiptly</h1><small class="standalone">Snap. Track. Save. — Your receipt scanner</small>
 <section class="card">
@@ -424,12 +424,12 @@ function showResult(r, text, note, unclear, lowResolution, readBy) {
 
   // Tell the user exactly what needs their attention instead of guessing silently.
   const warnings = note ? [note] : [];
-  if (unclear) warnings.push('This photo could not be read. Retake it with the receipt flat, the right way up and in good light, or type the details in yourself.');
+  if (unclear) warnings.push('Receiptly could not read this photo. That is the app\'s limit, not your mistake. Retake it with the receipt flat, the right way up and in good light, or type the details in below.');
   else {
-    if (!r.merchant) warnings.push('Shop name not found. Type it in.');
-    if (r.amount === '') warnings.push('No TOTAL line could be read. Enter the total yourself.');
-    if (!r.date) warnings.push("Can't see the date. Enter it yourself or tap Today.");
-    else if (r.dateUnsure) warnings.push('The date could be read as day/month or month/day. Check it.');
+    // Say plainly that the gap is Receiptly's, not the user's, and exactly which details are missing.
+    const missing = [!r.merchant && 'the shop name', r.amount === '' && 'the total', !r.date && 'the date'].filter(Boolean);
+    if (missing.length) warnings.push(`Receiptly could not read ${missing.join(' or ')} on this receipt. That is the app's limit, not your mistake. Please type ${missing.length > 1 ? 'them' : 'it'} in below.${r.date ? '' : ' For the date you can tap Today.'}`);
+    if (r.date && r.dateUnsure) warnings.push('The date could be read as day/month or month/day. Check it.');
     if (r.date > TODAY) warnings.push('This date is in the future. Keep it only if the payment is due later.');
     if (r.currency !== '£') warnings.push(`This receipt looks like it is in ${r.currency}, so it will be saved in ${r.currency}. Change the currency below if that is wrong.`);
   }
