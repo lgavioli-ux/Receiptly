@@ -509,7 +509,7 @@ async def main(page: ft.Page):
         return [
             heading("Good to see you!", "Your spending at a glance"),
             panel(
-                txt("Snap. Track. Save.", 15, WHITE),
+                txt("Scan. Track. Save.", 15, WHITE),
                 txt("Scan your receipt", 24, WHITE, True),
                 txt("Upload a receipt or add an expense manually.", 12, WHITE),
                 ft.Row(controls=[
